@@ -1,8 +1,9 @@
-# Roblox place/model exports
+# Roblox place/model exports (committed snapshot exception below)
 *.rbxl
 *.rbxlx
 *.rbxm
 *.rbxmx
+!build/MinigameHub.rbxlx
 
 # Wally (run `wally install` after clone)
 Packages/_Index/

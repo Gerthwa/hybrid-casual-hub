@@ -22,6 +22,10 @@ wally install
 
 Studio: **Plugins → Rojo → Connect** → `localhost:34872` → **Play**.
 
+**Studio’da hemen aç (Rojo kapalı):** `.\scripts\studio-open.ps1` → `build/MinigameHub.rbxlx`
+
+**Cursor Agent skill:** `.cursor/skills/rojo-studio/` — Agent’a “rojo-studio skill kullan” diyebilirsin.
+
 Detaylı Türkçe adımlar: [Rojo kurulum rehberi](cursor.agent://project/context/docs/rojo-setup.md).
 
 **VS Code / Cursor:** recommended extensions — **Rojo**, **Luau LSP**, **Selene** (`.vscode/extensions.json`).

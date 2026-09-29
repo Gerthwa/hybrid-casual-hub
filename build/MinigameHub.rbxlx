@@ -1,0 +1,2352 @@
+<roblox version="4">
+  <Item class="ReplicatedStorage" referent="0">
+    <Properties>
+      <string name="Name">ReplicatedStorage</string>
+    </Properties>
+    <Item class="Folder" referent="1">
+      <Properties>
+        <string name="Name">Packages</string>
+      </Properties>
+    </Item>
+    <Item class="Folder" referent="2">
+      <Properties>
+        <string name="Name">Remotes</string>
+      </Properties>
+    </Item>
+    <Item class="Folder" referent="3">
+      <Properties>
+        <string name="Name">Shared</string>
+      </Properties>
+      <Item class="ModuleScript" referent="4">
+        <Properties>
+          <string name="Name">GameConfig</string>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Global tuning values for the hub loop. Extend as tycoon / pets / rebirth systems land.
+]]
+
+local GameConfig = {
+	DataStore = {
+		ProfileKeyPrefix = "Player_",
+		StoreName = "HybridCasualHub_v1",
+	},
+
+	Minigame = {
+		LobbyCountdownSeconds = 3,
+		DurationSeconds = 30,
+		DefaultCoinReward = 50,
+	},
+
+	World = {
+		LobbySpawnName = "LobbySpawn",
+		ArenaSpawnName = "ArenaSpawn",
+		HubModelName = "Hub",
+	},
+
+	BossCombat = {
+		DefaultBossMaxHP = 5000,
+		CoinsPerDamage = 2,
+		FinishLineTag = "MultiplierRunnerFinish",
+		BossModelName = "SwarmBoss",
+		BossHitboxName = "Hitbox",
+		RunnerArmyAttribute = "RunnerArmySize",
+	},
+
+	SwarmVisuals = {
+		MaxAnimatedSoldiers = 180,
+		SoldiersPerFrame = 10,
+		TweenDurationSeconds = 0.35,
+		HitStaggerSeconds = 0.02,
+	},
+}
+
+return GameConfig
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="5">
+        <Properties>
+          <string name="Name">Remotes</string>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Remote names live in one place so server and client stay in sync.
+	Instances are created at runtime by RemotesService (server).
+]]
+
+local Remotes = {
+	FolderName = "Remotes",
+	PlayerDataUpdated = "PlayerDataUpdated",
+	MinigameStateChanged = "MinigameStateChanged",
+	PlaySwarmAnimation = "PlaySwarmAnimation",
+	TycoonRequestPurchase = "TycoonRequestPurchase",
+	TycoonProgressUpdated = "TycoonProgressUpdated",
+	TycoonStructureSpawned = "TycoonStructureSpawned",
+}
+
+return Remotes
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="6">
+        <Properties>
+          <string name="Name">TycoonConfig</string>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Tycoon node definitions (single source of truth for costs, deps, buffs).
+
+	How to expand:
+	1. Add a Model under ReplicatedStorage.TycoonPrefabs matching `PrefabName`.
+	2. Append a new entry to `Nodes` with a unique `ID`.
+	3. Set `Dependency` to the prerequisite node ID (or nil for roots).
+	4. Tune `PlotOffset` (CFrame relative to the player's plot origin).
+	5. Optional `Buff` permanently increases `Stats[Stat]` on the server profile.
+]]
+
+export type TycoonBuff = {
+	Stat: string,
+	Value: number,
+}
+
+export type TycoonNode = {
+	ID: string,
+	Cost: number,
+	PrefabName: string,
+	Dependency: string?,
+	PlotOffset: CFrame,
+	Buff: TycoonBuff?,
+}
+
+local TycoonConfig = {
+	--[[
+		Expand by copying a block and chaining Dependency:
+		Dependency = "PreviousNodeId"
+	]]
+	Nodes = {
+		Barracks = {
+			ID = "Barracks",
+			Cost = 150,
+			PrefabName = "Barracks",
+			Dependency = nil,
+			PlotOffset = CFrame.new(-12, 0, -10),
+			Buff = { Stat = "StartingArmy", Value = 5 },
+		},
+		Armory = {
+			ID = "Armory",
+			Cost = 400,
+			PrefabName = "Armory",
+			Dependency = "Barracks",
+			PlotOffset = CFrame.new(0, 0, -14),
+			Buff = { Stat = "StartingArmy", Value = 10 },
+		},
+		CommandCenter = {
+			ID = "CommandCenter",
+			Cost = 900,
+			PrefabName = "CommandCenter",
+			Dependency = "Armory",
+			PlotOffset = CFrame.new(12, 0, -10),
+			Buff = { Stat = "StartingArmy", Value = 20 },
+		},
+	} :: { [string]: TycoonNode },
+}
+
+local nodeList: { TycoonNode }? = nil
+
+function TycoonConfig.getNode(nodeId: string): TycoonNode?
+	return TycoonConfig.Nodes[nodeId]
+end
+
+function TycoonConfig.getAllNodes(): { TycoonNode }
+	if nodeList then
+		return nodeList
+	end
+	local list: { TycoonNode } = {}
+	for _, node in TycoonConfig.Nodes do
+		table.insert(list, node)
+	end
+	table.sort(list, function(a, b)
+		return a.Cost < b.Cost
+	end)
+	nodeList = list
+	return list
+end
+
+--[[
+	Shared predicate for UI hints only — server MUST re-validate before spending currency.
+]]
+function TycoonConfig.canPurchase(
+	nodeId: string,
+	unlocked: { [string]: boolean },
+	coins: number
+): (boolean, string?)
+	local node = TycoonConfig.getNode(nodeId)
+	if not node then
+		return false, "InvalidNode"
+	end
+	if unlocked[nodeId] then
+		return false, "AlreadyUnlocked"
+	end
+	if node.Dependency and not unlocked[node.Dependency] then
+		return false, "MissingDependency"
+	end
+	if coins < node.Cost then
+		return false, "InsufficientCoins"
+	end
+	return true, nil
+end
+
+return TycoonConfig
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="7">
+        <Properties>
+          <string name="Name">Types</string>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Shared Luau types for the hybrid-casual minigame hub.
+]]
+
+export type PlayerStats = {
+	StartingArmy: number,
+}
+
+export type PlayerData = {
+	Coins: number,
+	Gems: number,
+	Rebirths: number,
+	TycoonUnlocked: { [string]: boolean },
+	Stats: PlayerStats,
+}
+
+export type MinigamePhase = "Lobby" | "Playing" | "Reward" | "Idle"
+
+export type MinigameStatePayload = {
+	phase: MinigamePhase,
+	timeRemaining: number,
+}
+
+export type PlayerDataPayload = PlayerData
+
+export type TycoonProgressPayload = {
+	unlocked: { [string]: boolean },
+	coins: number,
+	stats: PlayerStats,
+}
+
+export type TycoonStructureSpawnedPayload = {
+	ownerUserId: number,
+	nodeId: string,
+	plotName: string,
+}
+
+export type SwarmAttackPayload = {
+	armySize: number,
+	damageDealt: number,
+	survivingSoldiers: number,
+	bossMaxHP: number,
+	bossCurrentHP: number,
+	coinsAwarded: number,
+}
+
+return nil
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Folder" referent="8">
+      <Properties>
+        <string name="Name">TycoonPrefabs</string>
+      </Properties>
+      <Item class="Model" referent="9">
+        <Properties>
+          <string name="Name">Armory</string>
+          <string name="Name">Armory</string>
+          <bool name="NeedsPivotMigration">false</bool>
+        </Properties>
+        <Item class="Part" referent="10">
+          <Properties>
+            <string name="Name">Base</string>
+            <bool name="Anchored">true</bool>
+            <Color3uint8 name="Color3uint8">15109171</Color3uint8>
+            <string name="Name">Base</string>
+            <Vector3 name="Position">
+              <X>0</X>
+              <Y>4</Y>
+              <Z>0</Z>
+            </Vector3>
+            <Vector3 name="size">
+              <X>10</X>
+              <Y>8</Y>
+              <Z>10</Z>
+            </Vector3>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Model" referent="11">
+        <Properties>
+          <string name="Name">Barracks</string>
+          <string name="Name">Barracks</string>
+          <bool name="NeedsPivotMigration">false</bool>
+        </Properties>
+        <Item class="Part" referent="12">
+          <Properties>
+            <string name="Name">Base</string>
+            <bool name="Anchored">true</bool>
+            <Color3uint8 name="Color3uint8">5868786</Color3uint8>
+            <string name="Name">Base</string>
+            <Vector3 name="Position">
+              <X>0</X>
+              <Y>3</Y>
+              <Z>0</Z>
+            </Vector3>
+            <Vector3 name="size">
+              <X>8</X>
+              <Y>6</Y>
+              <Z>8</Z>
+            </Vector3>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Model" referent="13">
+        <Properties>
+          <string name="Name">CommandCenter</string>
+          <string name="Name">CommandCenter</string>
+          <bool name="NeedsPivotMigration">false</bool>
+        </Properties>
+        <Item class="Part" referent="14">
+          <Properties>
+            <string name="Name">Base</string>
+            <bool name="Anchored">true</bool>
+            <Color3uint8 name="Color3uint8">12533977</Color3uint8>
+            <string name="Name">Base</string>
+            <Vector3 name="Position">
+              <X>0</X>
+              <Y>5</Y>
+              <Z>0</Z>
+            </Vector3>
+            <Vector3 name="size">
+              <X>12</X>
+              <Y>10</Y>
+              <Z>12</Z>
+            </Vector3>
+          </Properties>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerScriptService" referent="15">
+    <Properties>
+      <string name="Name">ServerScriptService</string>
+    </Properties>
+    <Item class="Script" referent="16">
+      <Properties>
+        <string name="Name">Server</string>
+        <token name="RunContext">0</token>
+        <string name="Source"><![CDATA[--!strict
+--[[
+	Server bootstrap: remotes → persistence → minigame loop.
+]]
+
+local Server = script.Parent
+
+local RemotesService = require(Server.Services.RemotesService)
+local DataService = require(Server.Services.DataService)
+local MinigameManager = require(Server.Services.MinigameManager)
+
+RemotesService:Init()
+DataService:Init(RemotesService)
+MinigameManager:Init(DataService, RemotesService)
+
+print("[HybridCasualHub] Server initialized")
+]]></string>
+      </Properties>
+      <Item class="Script" referent="17">
+        <Properties>
+          <string name="Name">BossCombatService</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Boss Fight Phase — Swarm Attack (server-authoritative math only).
+	Only the finish-line part uses .Touched (one collider), never per-soldier physics.
+]]
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Server = script.Parent
+local DataService = require(Server.Services.DataService)
+local RemotesService = require(Server.Services.RemotesService)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type SwarmAttackPayload = Types.SwarmAttackPayload
+
+local bossHPByPlayer: { [Player]: number } = {}
+local finishDebounce: { [Player]: boolean } = {}
+
+local function getPlaySwarmRemote(): RemoteEvent
+	local folder = ReplicatedStorage:WaitForChild(Remotes.FolderName)
+	return folder:WaitForChild(Remotes.PlaySwarmAnimation) :: RemoteEvent
+end
+
+local function getArmySize(player: Player): number
+	local baseArmy = 100
+	local tycoonBonus = player:GetAttribute("Stat_StartingArmy")
+	if typeof(tycoonBonus) == "number" and tycoonBonus > 0 then
+		baseArmy += math.floor(tycoonBonus)
+	end
+
+	local army = player:GetAttribute(GameConfig.BossCombat.RunnerArmyAttribute)
+	if typeof(army) == "number" and army > 0 then
+		return math.floor(army)
+	end
+	return baseArmy
+end
+
+local function getBossHP(player: Player): (number, number)
+	local maxHP = GameConfig.BossCombat.DefaultBossMaxHP
+	local current = bossHPByPlayer[player]
+	if current == nil then
+		current = maxHP
+		bossHPByPlayer[player] = current
+	end
+	return current, maxHP
+end
+
+local function triggerSwarmAttack(player: Player)
+	if finishDebounce[player] then
+		return
+	end
+	finishDebounce[player] = true
+	task.delay(2, function()
+		finishDebounce[player] = nil
+	end)
+
+	local armySize = getArmySize(player)
+	local bossHP, bossMaxHP = getBossHP(player)
+
+	local damageDealt = math.min(armySize, bossHP)
+	local survivingSoldiers = armySize - damageDealt
+	local newBossHP = bossHP - damageDealt
+	bossHPByPlayer[player] = newBossHP
+
+	local coinsAwarded = damageDealt * GameConfig.BossCombat.CoinsPerDamage
+	if coinsAwarded > 0 then
+		DataService:AddCoins(player, coinsAwarded)
+		DataService:PushDataToClient(player, RemotesService)
+	end
+
+	local payload: SwarmAttackPayload = {
+		armySize = armySize,
+		damageDealt = damageDealt,
+		survivingSoldiers = survivingSoldiers,
+		bossMaxHP = bossMaxHP,
+		bossCurrentHP = newBossHP,
+		coinsAwarded = coinsAwarded,
+	}
+
+	getPlaySwarmRemote():FireClient(player, payload)
+
+	if newBossHP <= 0 then
+		task.delay(3, function()
+			bossHPByPlayer[player] = bossMaxHP
+		end)
+	end
+end
+
+local function bindFinishPart(part: BasePart)
+	if part:GetAttribute("SwarmFinishBound") then
+		return
+	end
+	part:SetAttribute("SwarmFinishBound", true)
+
+	part.Touched:Connect(function(hit: BasePart)
+		local character = hit.Parent
+		if not character then
+			return
+		end
+		local player = Players:GetPlayerFromCharacter(character)
+		if not player then
+			return
+		end
+		triggerSwarmAttack(player)
+	end)
+end
+
+for _, instance in CollectionService:GetTagged(GameConfig.BossCombat.FinishLineTag) do
+	if instance:IsA("BasePart") then
+		bindFinishPart(instance)
+	end
+end
+
+CollectionService:GetInstanceAddedSignal(GameConfig.BossCombat.FinishLineTag):Connect(function(instance: Instance)
+	if instance:IsA("BasePart") then
+		bindFinishPart(instance)
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(player: Player)
+	bossHPByPlayer[player] = nil
+	finishDebounce[player] = nil
+end)
+
+print("[HybridCasualHub] BossCombatService ready")
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="18">
+        <Properties>
+          <string name="Name">Services</string>
+        </Properties>
+        <Item class="ModuleScript" referent="19">
+          <Properties>
+            <string name="Name">DataService</string>
+            <string name="Source"><![CDATA[--!strict
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local TycoonConfig = require(ReplicatedStorage.Shared.TycoonConfig)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type RemotesService = require(script.Parent.RemotesService)
+type PlayerData = Types.PlayerData
+type PlayerStats = Types.PlayerStats
+
+local ProfileService = require(ServerStorage.ServerPackages.ProfileService)
+
+export type DataService = {
+	Init: (self: DataService, remotesService: RemotesService) -> (),
+	GetData: (self: DataService, player: Player) -> PlayerData?,
+	AddCoins: (self: DataService, player: Player, amount: number) -> boolean,
+	TrySpendCoins: (self: DataService, player: Player, amount: number) -> boolean,
+	IsTycoonUnlocked: (self: DataService, player: Player, nodeId: string) -> boolean,
+	UnlockTycoonNode: (self: DataService, player: Player, nodeId: string) -> boolean,
+	GetStats: (self: DataService, player: Player) -> PlayerStats,
+	OnProfileReady: (self: DataService, player: Player, callback: (data: PlayerData) -> ()) -> (),
+	PushDataToClient: (self: DataService, player: Player, remotesService: RemotesService) -> (),
+}
+
+local DataService = {} :: DataService
+DataService.__index = DataService
+
+type Profile = any
+
+local DEFAULT_STATS: PlayerStats = {
+	StartingArmy = 0,
+}
+
+local profileTemplate = {
+	Coins = 0,
+	Gems = 0,
+	Rebirths = 0,
+	TycoonUnlocked = {},
+	Stats = {
+		StartingArmy = 0,
+	},
+}
+
+local profileStore = ProfileService.GetProfileStore(GameConfig.DataStore.StoreName, profileTemplate)
+
+local profiles: { [Player]: Profile } = {}
+local readyCallbacks: { [Player]: { (data: PlayerData) -> () } } = {}
+
+local function normalizeUnlocked(raw: any): { [string]: boolean }
+	local unlocked: { [string]: boolean } = {}
+	if typeof(raw) == "table" then
+		for key, value in raw do
+			if value == true then
+				unlocked[tostring(key)] = true
+			end
+		end
+	end
+	return unlocked
+end
+
+local function normalizeStats(raw: any): PlayerStats
+	if typeof(raw) ~= "table" then
+		return table.clone(DEFAULT_STATS)
+	end
+	return {
+		StartingArmy = if typeof(raw.StartingArmy) == "number" then raw.StartingArmy else 0,
+	}
+end
+
+local function snapshotFromProfile(profile: Profile): PlayerData
+	local data = profile.Data
+	return {
+		Coins = data.Coins,
+		Gems = data.Gems,
+		Rebirths = data.Rebirths,
+		TycoonUnlocked = normalizeUnlocked(data.TycoonUnlocked),
+		Stats = normalizeStats(data.Stats),
+	}
+end
+
+local function applyBuffToProfile(profile: Profile, buff: { Stat: string, Value: number })
+	local stats = profile.Data.Stats
+	if typeof(stats) ~= "table" then
+		profile.Data.Stats = table.clone(DEFAULT_STATS)
+		stats = profile.Data.Stats
+	end
+	if buff.Stat == "StartingArmy" then
+		stats.StartingArmy = (stats.StartingArmy or 0) + buff.Value
+	end
+end
+
+local function syncStatAttributes(player: Player, stats: PlayerStats)
+	player:SetAttribute("Stat_StartingArmy", stats.StartingArmy)
+end
+
+function DataService:Init(remotesService: RemotesService)
+	local playerDataRemote = remotesService:GetPlayerDataUpdated()
+
+	local function onPlayerAdded(player: Player)
+		local profileKey = GameConfig.DataStore.ProfileKeyPrefix .. player.UserId
+		local profile = profileStore:LoadProfileAsync(profileKey)
+
+		if profile == nil then
+			player:Kick("Could not load data. Please rejoin.")
+			return
+		end
+
+		profile:AddUserId(player.UserId)
+		profile:Reconcile()
+
+		profile:ListenToRelease(function()
+			profiles[player] = nil
+			if player.Parent then
+				player:Kick("Profile released — please rejoin.")
+			end
+		end)
+
+		if player.Parent ~= Players then
+			profile:Release()
+			return
+		end
+
+		profiles[player] = profile
+		local snapshot = snapshotFromProfile(profile)
+		syncStatAttributes(player, snapshot.Stats)
+		playerDataRemote:FireClient(player, snapshot)
+
+		local callbacks = readyCallbacks[player]
+		if callbacks then
+			for _, callback in callbacks do
+				task.spawn(callback, snapshot)
+			end
+			readyCallbacks[player] = nil
+		end
+	end
+
+	local function onPlayerRemoving(player: Player)
+		local profile = profiles[player]
+		profiles[player] = nil
+		readyCallbacks[player] = nil
+		if profile then
+			profile:Release()
+		end
+	end
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	Players.PlayerRemoving:Connect(onPlayerRemoving)
+
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+end
+
+function DataService:GetData(player: Player): PlayerData?
+	local profile = profiles[player]
+	if not profile then
+		return nil
+	end
+	return snapshotFromProfile(profile)
+end
+
+function DataService:AddCoins(player: Player, amount: number): boolean
+	local profile = profiles[player]
+	if not profile or amount <= 0 then
+		return false
+	end
+
+	profile.Data.Coins += amount
+	return true
+end
+
+function DataService:TrySpendCoins(player: Player, amount: number): boolean
+	local profile = profiles[player]
+	if not profile or amount <= 0 then
+		return false
+	end
+	if profile.Data.Coins < amount then
+		return false
+	end
+	profile.Data.Coins -= amount
+	return true
+end
+
+function DataService:IsTycoonUnlocked(player: Player, nodeId: string): boolean
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+	local unlocked = normalizeUnlocked(profile.Data.TycoonUnlocked)
+	return unlocked[nodeId] == true
+end
+
+function DataService:UnlockTycoonNode(player: Player, nodeId: string): boolean
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+
+	if typeof(profile.Data.TycoonUnlocked) ~= "table" then
+		profile.Data.TycoonUnlocked = {}
+	end
+
+	local node = TycoonConfig.getNode(nodeId)
+	if not node then
+		return false
+	end
+
+	profile.Data.TycoonUnlocked[nodeId] = true
+	if node.Buff then
+		applyBuffToProfile(profile, node.Buff)
+		syncStatAttributes(player, normalizeStats(profile.Data.Stats))
+	end
+
+	return true
+end
+
+function DataService:GetStats(player: Player): PlayerStats
+	local data = self:GetData(player)
+	if not data then
+		return table.clone(DEFAULT_STATS)
+	end
+	return data.Stats
+end
+
+function DataService:OnProfileReady(player: Player, callback: (data: PlayerData) -> ())
+	if profiles[player] then
+		callback(snapshotFromProfile(profiles[player]))
+		return
+	end
+
+	local list = readyCallbacks[player]
+	if not list then
+		list = {}
+		readyCallbacks[player] = list
+	end
+	table.insert(list, callback)
+end
+
+function DataService:PushDataToClient(player: Player, remotesService: RemotesService)
+	local data = self:GetData(player)
+	if not data then
+		return
+	end
+	remotesService:GetPlayerDataUpdated():FireClient(player, data)
+end
+
+return DataService
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="20">
+          <Properties>
+            <string name="Name">MinigameManager</string>
+            <string name="Source"><![CDATA[--!strict
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type DataService = require(script.Parent.DataService)
+type RemotesService = require(script.Parent.RemotesService)
+type MinigamePhase = Types.MinigamePhase
+
+export type MinigameManager = {
+	Init: (self: MinigameManager, dataService: DataService, remotesService: RemotesService) -> (),
+}
+
+local MinigameManager = {} :: MinigameManager
+MinigameManager.__index = MinigameManager
+
+type SessionState = {
+	phase: MinigamePhase,
+	taskToken: number,
+}
+
+local sessions: { [Player]: SessionState } = {}
+local dataServiceRef: DataService? = nil
+local remotesServiceRef: RemotesService? = nil
+local nextSessionToken = 0
+
+local function getHubSpawn(name: string): SpawnLocation?
+	local hub = Workspace:FindFirstChild(GameConfig.World.HubModelName)
+	if not hub then
+		return nil
+	end
+	local spawn = hub:FindFirstChild(name)
+	if spawn and spawn:IsA("SpawnLocation") then
+		return spawn
+	end
+	return nil
+end
+
+local function teleportCharacterToSpawn(player: Player, spawnName: string)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local spawn = getHubSpawn(spawnName)
+	if root and spawn then
+		root.CFrame = spawn.CFrame + Vector3.new(0, 3, 0)
+	end
+end
+
+local function fireMinigameState(player: Player, phase: MinigamePhase, timeRemaining: number)
+	local remotes = remotesServiceRef
+	if not remotes then
+		return
+	end
+	remotes:GetMinigameStateChanged():FireClient(player, {
+		phase = phase,
+		timeRemaining = timeRemaining,
+	})
+end
+
+local function cancelSession(player: Player)
+	local session = sessions[player]
+	if session then
+		session.taskToken = -1
+	end
+	sessions[player] = nil
+end
+
+local function runMinigameLoop(player: Player, token: number)
+	local config = GameConfig.Minigame
+	local dataService = dataServiceRef
+	local remotes = remotesServiceRef
+	if not dataService or not remotes then
+		return
+	end
+
+	local session = sessions[player]
+	if not session or session.taskToken ~= token then
+		return
+	end
+
+	session.phase = "Lobby"
+	for remaining = config.LobbyCountdownSeconds, 1, -1 do
+		if not sessions[player] or sessions[player].taskToken ~= token then
+			return
+		end
+		fireMinigameState(player, "Lobby", remaining)
+		task.wait(1)
+	end
+
+	if not sessions[player] or sessions[player].taskToken ~= token then
+		return
+	end
+
+	teleportCharacterToSpawn(player, GameConfig.World.ArenaSpawnName)
+	session.phase = "Playing"
+
+	for remaining = config.DurationSeconds, 0, -1 do
+		if not sessions[player] or sessions[player].taskToken ~= token then
+			return
+		end
+		fireMinigameState(player, "Playing", remaining)
+		if remaining == 0 then
+			break
+		end
+		task.wait(1)
+	end
+
+	if not sessions[player] or sessions[player].taskToken ~= token then
+		return
+	end
+
+	dataService:AddCoins(player, config.DefaultCoinReward)
+	dataService:PushDataToClient(player, remotes)
+
+	session.phase = "Reward"
+	fireMinigameState(player, "Reward", 0)
+	task.wait(2)
+
+	teleportCharacterToSpawn(player, GameConfig.World.LobbySpawnName)
+	sessions[player] = nil
+	fireMinigameState(player, "Idle", 0)
+
+	task.defer(function()
+		if player.Parent == Players then
+			MinigameManager:StartSession(player)
+		end
+	end)
+end
+
+function MinigameManager:StartSession(player: Player)
+	cancelSession(player)
+	nextSessionToken += 1
+	local token = nextSessionToken
+	sessions[player] = {
+		phase = "Idle",
+		taskToken = token,
+	}
+	task.spawn(runMinigameLoop, player, token)
+end
+
+function MinigameManager:Init(dataService: DataService, remotesService: RemotesService)
+	dataServiceRef = dataService
+	remotesServiceRef = remotesService
+
+	local function hookPlayer(player: Player)
+		dataService:OnProfileReady(player, function()
+			teleportCharacterToSpawn(player, GameConfig.World.LobbySpawnName)
+			self:StartSession(player)
+		end)
+
+		player.CharacterAdded:Connect(function()
+			if sessions[player] then
+				local phase = sessions[player].phase
+				if phase == "Playing" then
+					teleportCharacterToSpawn(player, GameConfig.World.ArenaSpawnName)
+				else
+					teleportCharacterToSpawn(player, GameConfig.World.LobbySpawnName)
+				end
+			end
+		end)
+	end
+
+	Players.PlayerAdded:Connect(hookPlayer)
+	Players.PlayerRemoving:Connect(cancelSession)
+
+	for _, player in Players:GetPlayers() do
+		hookPlayer(player)
+	end
+end
+
+return MinigameManager
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="21">
+          <Properties>
+            <string name="Name">RemotesService</string>
+            <string name="Source"><![CDATA[--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+export type RemotesService = {
+	Init: (self: RemotesService) -> (),
+	GetFolder: (self: RemotesService) -> Folder,
+	GetPlayerDataUpdated: (self: RemotesService) -> RemoteEvent,
+	GetMinigameStateChanged: (self: RemotesService) -> RemoteEvent,
+	GetPlaySwarmAnimation: (self: RemotesService) -> RemoteEvent,
+	GetTycoonRequestPurchase: (self: RemotesService) -> RemoteFunction,
+	GetTycoonProgressUpdated: (self: RemotesService) -> RemoteEvent,
+	GetTycoonStructureSpawned: (self: RemotesService) -> RemoteEvent,
+}
+
+local RemotesService = {} :: RemotesService
+RemotesService.__index = RemotesService
+
+local folder: Folder? = nil
+local playerDataUpdated: RemoteEvent? = nil
+local minigameStateChanged: RemoteEvent? = nil
+local playSwarmAnimation: RemoteEvent? = nil
+local tycoonRequestPurchase: RemoteFunction? = nil
+local tycoonProgressUpdated: RemoteEvent? = nil
+local tycoonStructureSpawned: RemoteEvent? = nil
+
+local function getOrCreateRemoteEvent(parent: Instance, name: string): RemoteEvent
+	local existing = parent:FindFirstChild(name)
+	if existing and existing:IsA("RemoteEvent") then
+		return existing
+	end
+
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = parent
+	return remote
+end
+
+local function getOrCreateRemoteFunction(parent: Instance, name: string): RemoteFunction
+	local existing = parent:FindFirstChild(name)
+	if existing and existing:IsA("RemoteFunction") then
+		return existing
+	end
+
+	local remote = Instance.new("RemoteFunction")
+	remote.Name = name
+	remote.Parent = parent
+	return remote
+end
+
+function RemotesService:Init()
+	local remotesFolder = ReplicatedStorage:FindFirstChild(Remotes.FolderName)
+	if not remotesFolder or not remotesFolder:IsA("Folder") then
+		remotesFolder = Instance.new("Folder")
+		remotesFolder.Name = Remotes.FolderName
+		remotesFolder.Parent = ReplicatedStorage
+	end
+
+	folder = remotesFolder
+	playerDataUpdated = getOrCreateRemoteEvent(remotesFolder, Remotes.PlayerDataUpdated)
+	minigameStateChanged = getOrCreateRemoteEvent(remotesFolder, Remotes.MinigameStateChanged)
+	playSwarmAnimation = getOrCreateRemoteEvent(remotesFolder, Remotes.PlaySwarmAnimation)
+	tycoonRequestPurchase = getOrCreateRemoteFunction(remotesFolder, Remotes.TycoonRequestPurchase)
+	tycoonProgressUpdated = getOrCreateRemoteEvent(remotesFolder, Remotes.TycoonProgressUpdated)
+	tycoonStructureSpawned = getOrCreateRemoteEvent(remotesFolder, Remotes.TycoonStructureSpawned)
+end
+
+function RemotesService:GetFolder(): Folder
+	assert(folder, "RemotesService not initialized")
+	return folder
+end
+
+function RemotesService:GetPlayerDataUpdated(): RemoteEvent
+	assert(playerDataUpdated, "RemotesService not initialized")
+	return playerDataUpdated
+end
+
+function RemotesService:GetMinigameStateChanged(): RemoteEvent
+	assert(minigameStateChanged, "RemotesService not initialized")
+	return minigameStateChanged
+end
+
+function RemotesService:GetPlaySwarmAnimation(): RemoteEvent
+	assert(playSwarmAnimation, "RemotesService not initialized")
+	return playSwarmAnimation
+end
+
+function RemotesService:GetTycoonRequestPurchase(): RemoteFunction
+	assert(tycoonRequestPurchase, "RemotesService not initialized")
+	return tycoonRequestPurchase
+end
+
+function RemotesService:GetTycoonProgressUpdated(): RemoteEvent
+	assert(tycoonProgressUpdated, "RemotesService not initialized")
+	return tycoonProgressUpdated
+end
+
+function RemotesService:GetTycoonStructureSpawned(): RemoteEvent
+	assert(tycoonStructureSpawned, "RemotesService not initialized")
+	return tycoonStructureSpawned
+end
+
+return RemotesService
+]]></string>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Script" referent="22">
+        <Properties>
+          <string name="Name">TycoonService</string>
+          <token name="RunContext">0</token>
+          <string name="Source"><![CDATA[--!strict
+--[[
+	Authoritative tycoon purchases — costs, dependencies, and currency live on the server.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Server = script.Parent
+local DataService = require(Server.Services.DataService)
+local RemotesService = require(Server.Services.RemotesService)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local TycoonConfig = require(ReplicatedStorage.Shared.TycoonConfig)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type TycoonProgressPayload = Types.TycoonProgressPayload
+type TycoonStructureSpawnedPayload = Types.TycoonStructureSpawnedPayload
+
+local PLOTS_FOLDER_NAME = "TycoonPlots"
+local PLOT_ORIGIN_NAME = "Origin"
+local STRUCTURES_FOLDER_NAME = "Structures"
+
+local plotByPlayer: { [Player]: Model } = {}
+local plotAssignments: { [string]: Player } = {}
+
+local function waitForTycoonRemotes()
+	local folder = ReplicatedStorage:WaitForChild(Remotes.FolderName)
+	folder:WaitForChild(Remotes.TycoonRequestPurchase)
+	folder:WaitForChild(Remotes.TycoonProgressUpdated)
+	folder:WaitForChild(Remotes.TycoonStructureSpawned)
+end
+
+local function getPlotsFolder(): Folder?
+	local hub = Workspace:FindFirstChild("Hub")
+	if not hub then
+		return nil
+	end
+	local plots = hub:FindFirstChild(PLOTS_FOLDER_NAME)
+	if plots and plots:IsA("Folder") then
+		return plots
+	end
+	return nil
+end
+
+local function getPrefabsFolder(): Folder?
+	local prefabs = ReplicatedStorage:FindFirstChild("TycoonPrefabs")
+	if prefabs and prefabs:IsA("Folder") then
+		return prefabs
+	end
+	return nil
+end
+
+local function assignPlot(player: Player): Model?
+	local existing = plotByPlayer[player]
+	if existing then
+		return existing
+	end
+
+	local plotsFolder = getPlotsFolder()
+	if not plotsFolder then
+		warn("[TycoonService] Missing Workspace.Hub.TycoonPlots")
+		return nil
+	end
+
+	for _, plot in plotsFolder:GetChildren() do
+		if plot:IsA("Model") and plotAssignments[plot.Name] == nil then
+			plotAssignments[plot.Name] = player
+			plotByPlayer[player] = plot
+			plot:SetAttribute("OwnerUserId", player.UserId)
+
+			local structures = plot:FindFirstChild(STRUCTURES_FOLDER_NAME)
+			if not structures then
+				structures = Instance.new("Folder")
+				structures.Name = STRUCTURES_FOLDER_NAME
+				structures.Parent = plot
+			end
+
+			return plot
+		end
+	end
+
+	return nil
+end
+
+local function getPlotOrigin(plot: Model): CFrame
+	local origin = plot:FindFirstChild(PLOT_ORIGIN_NAME)
+	if origin and origin:IsA("BasePart") then
+		return origin.CFrame
+	end
+	return plot:GetPivot()
+end
+
+local function buildProgressPayload(player: Player): TycoonProgressPayload?
+	local data = DataService:GetData(player)
+	if not data then
+		return nil
+	end
+	return {
+		unlocked = data.TycoonUnlocked,
+		coins = data.Coins,
+		stats = data.Stats,
+	}
+end
+
+local function pushProgress(player: Player)
+	local payload = buildProgressPayload(player)
+	if not payload then
+		return
+	end
+	RemotesService:GetTycoonProgressUpdated():FireClient(player, payload)
+	DataService:PushDataToClient(player, RemotesService)
+end
+
+local function spawnStructure(player: Player, nodeId: string): Model?
+	local plot = assignPlot(player)
+	if not plot then
+		return nil
+	end
+
+	local node = TycoonConfig.getNode(nodeId)
+	if not node then
+		return nil
+	end
+
+	local prefabs = getPrefabsFolder()
+	if not prefabs then
+		warn("[TycoonService] Missing ReplicatedStorage.TycoonPrefabs")
+		return nil
+	end
+
+	local template = prefabs:FindFirstChild(node.PrefabName)
+	if not template or not template:IsA("Model") then
+		warn("[TycoonService] Missing prefab:", node.PrefabName)
+		return nil
+	end
+
+	local structures = plot:FindFirstChild(STRUCTURES_FOLDER_NAME) :: Folder
+	local clone = template:Clone()
+	if not clone.PrimaryPart then
+		local base = clone:FindFirstChild("Base")
+		if base and base:IsA("BasePart") then
+			clone.PrimaryPart = base
+		end
+	end
+	clone.Name = node.ID
+	clone:SetAttribute("TycoonNodeId", node.ID)
+	clone:SetAttribute("OwnerUserId", player.UserId)
+	clone:PivotTo(getPlotOrigin(plot) * node.PlotOffset)
+	clone.Parent = structures
+
+	return clone
+end
+
+local function handlePurchase(player: Player, nodeId: any): (boolean, string?)
+	if typeof(nodeId) ~= "string" then
+		return false, "InvalidNode"
+	end
+
+	local data = DataService:GetData(player)
+	if not data then
+		return false, "NoData"
+	end
+
+	local canBuy, reason = TycoonConfig.canPurchase(nodeId, data.TycoonUnlocked, data.Coins)
+	if not canBuy then
+		return false, reason
+	end
+
+	local node = TycoonConfig.getNode(nodeId)
+	if not node then
+		return false, "InvalidNode"
+	end
+
+	if not DataService:TrySpendCoins(player, node.Cost) then
+		return false, "InsufficientCoins"
+	end
+
+	if not DataService:UnlockTycoonNode(player, nodeId) then
+		return false, "UnlockFailed"
+	end
+
+	local plot = assignPlot(player)
+	if not plot then
+		return false, "NoPlot"
+	end
+
+	spawnStructure(player, nodeId)
+
+	local spawnPayload: TycoonStructureSpawnedPayload = {
+		ownerUserId = player.UserId,
+		nodeId = nodeId,
+		plotName = plot.Name,
+	}
+	RemotesService:GetTycoonStructureSpawned():FireAllClients(spawnPayload)
+	pushProgress(player)
+
+	return true, nil
+end
+
+local function restoreStructures(player: Player)
+	local data = DataService:GetData(player)
+	if not data then
+		return
+	end
+	for nodeId, isUnlocked in data.TycoonUnlocked do
+		if isUnlocked then
+			spawnStructure(player, nodeId)
+		end
+	end
+end
+
+waitForTycoonRemotes()
+
+RemotesService:GetTycoonRequestPurchase().OnServerInvoke = function(player: Player, nodeId: string)
+	return handlePurchase(player, nodeId)
+end
+
+Players.PlayerAdded:Connect(function(player: Player)
+	DataService:OnProfileReady(player, function()
+		assignPlot(player)
+		restoreStructures(player)
+		pushProgress(player)
+	end)
+end)
+
+for _, player in Players:GetPlayers() do
+	DataService:OnProfileReady(player, function()
+		assignPlot(player)
+		restoreStructures(player)
+		pushProgress(player)
+	end)
+end
+
+Players.PlayerRemoving:Connect(function(player: Player)
+	local plot = plotByPlayer[player]
+	if plot then
+		plotAssignments[plot.Name] = nil
+		plot:SetAttribute("OwnerUserId", nil)
+	end
+	plotByPlayer[player] = nil
+end)
+
+print("[HybridCasualHub] TycoonService ready")
+]]></string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="ServerStorage" referent="23">
+    <Properties>
+      <string name="Name">ServerStorage</string>
+    </Properties>
+    <Item class="Folder" referent="24">
+      <Properties>
+        <string name="Name">ServerPackages</string>
+      </Properties>
+      <Item class="ModuleScript" referent="25">
+        <Properties>
+          <string name="Name">ProfileService</string>
+          <string name="Source"><![CDATA[return require(script.Parent._Index["tazmondo_profileservice@1.0.6"]["profileservice"])
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="Folder" referent="26">
+        <Properties>
+          <string name="Name">_Index</string>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="StarterPlayer" referent="27">
+    <Properties>
+      <string name="Name">StarterPlayer</string>
+    </Properties>
+    <Item class="StarterPlayerScripts" referent="28">
+      <Properties>
+        <string name="Name">StarterPlayerScripts</string>
+      </Properties>
+      <Item class="LocalScript" referent="29">
+        <Properties>
+          <string name="Name">Client</string>
+          <string name="Source"><![CDATA[--!strict
+local Client = script.Parent
+
+local GameController = require(Client.Controllers.GameController)
+
+GameController:Init()
+
+print("[HybridCasualHub] Client initialized")
+]]></string>
+        </Properties>
+        <Item class="LocalScript" referent="30">
+          <Properties>
+            <string name="Name">BossSwarmController</string>
+            <string name="Source"><![CDATA[--!strict
+--[[
+	Client-side swarm visuals. Server already applied damage / rewards.
+	Batched Heartbeat launches keep tween cost spread across frames.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local Client = script.Parent
+local SoldierObjectPool = require(Client.Modules.SoldierObjectPool)
+local BossCombatJuice = require(Client.Modules.BossCombatJuice)
+local BossUIController = require(Client.Controllers.BossUIController)
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type SwarmAttackPayload = Types.SwarmAttackPayload
+
+local player = Players.LocalPlayer
+local pool = SoldierObjectPool.new(Workspace.CurrentCamera or Workspace)
+local isPlaying = false
+
+local function findBossHitbox(): BasePart?
+	local hub = Workspace:FindFirstChild(GameConfig.World.HubModelName)
+	local boss = hub and hub:FindFirstChild(GameConfig.BossCombat.BossModelName)
+	local hitbox = boss and boss:FindFirstChild(GameConfig.BossCombat.BossHitboxName)
+	if hitbox and hitbox:IsA("BasePart") then
+		return hitbox
+	end
+	return nil
+end
+
+local function playSwarmAnimation(payload: SwarmAttackPayload)
+	if isPlaying then
+		return
+	end
+	isPlaying = true
+
+	local hitbox = findBossHitbox()
+	if not hitbox then
+		warn("[BossSwarm] Boss hitbox not found under Workspace.Hub.SwarmBoss")
+		isPlaying = false
+		return
+	end
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local formationOrigin = if root then root.CFrame else CFrame.new(0, 5, 80)
+
+	local hitsToShow = math.min(payload.damageDealt, GameConfig.SwarmVisuals.MaxAnimatedSoldiers)
+	local pendingSoldiers = pool:PrepareSwarm(hitsToShow, formationOrigin)
+
+	local bossHPBefore = payload.bossCurrentHP + payload.damageDealt
+	BossUIController:BeginEncounter(payload.bossMaxHP, bossHPBefore)
+
+	local damagePerSoldier = 1
+	local extraDamageRemainder = math.max(0, payload.damageDealt - hitsToShow)
+
+	local queueIndex = 1
+	local completedHits = 0
+	local totalLaunched = #pendingSoldiers
+
+	local function launchSoldierTween(soldier: BasePart, hitDamage: number)
+		local target = hitbox.CFrame * CFrame.new(math.random(-3, 3), math.random(-2, 2), math.random(-3, 3))
+		local tween = TweenService:Create(
+			soldier,
+			TweenInfo.new(GameConfig.SwarmVisuals.TweenDurationSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ CFrame = target }
+		)
+
+		tween.Completed:Once(function()
+			pool:Release(soldier)
+			BossCombatJuice.emitHitParticles(hitbox)
+			BossCombatJuice.playHitSound(hitbox)
+			BossUIController:ApplyVisualHit(hitDamage)
+			completedHits += 1
+
+			if completedHits >= totalLaunched then
+				BossUIController:SnapToAuthority(payload.bossCurrentHP, payload.bossMaxHP)
+				isPlaying = false
+			end
+		end)
+
+		tween:Play()
+	end
+
+	if totalLaunched == 0 then
+		BossUIController:SnapToAuthority(payload.bossCurrentHP, payload.bossMaxHP)
+		isPlaying = false
+		return
+	end
+
+	-- Stagger: launch N soldiers per frame instead of all at once.
+	local batchConnection: RBXScriptConnection?
+	batchConnection = RunService.Heartbeat:Connect(function()
+		local launchedThisFrame = 0
+		while launchedThisFrame < GameConfig.SwarmVisuals.SoldiersPerFrame and queueIndex <= totalLaunched do
+			local soldier = pendingSoldiers[queueIndex]
+			local hitDamage = damagePerSoldier
+			if queueIndex == totalLaunched and extraDamageRemainder > 0 then
+				hitDamage += extraDamageRemainder
+			end
+
+			launchSoldierTween(soldier, hitDamage)
+			queueIndex += 1
+			launchedThisFrame += 1
+		end
+
+		if queueIndex > totalLaunched and batchConnection then
+			batchConnection:Disconnect()
+		end
+	end)
+end
+
+local remotesFolder = ReplicatedStorage:WaitForChild(Remotes.FolderName)
+local playSwarmRemote = remotesFolder:WaitForChild(Remotes.PlaySwarmAnimation) :: RemoteEvent
+
+playSwarmRemote.OnClientEvent:Connect(function(payload: SwarmAttackPayload)
+	playSwarmAnimation(payload)
+end)
+
+print("[HybridCasualHub] BossSwarmController ready")
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="LocalScript" referent="31">
+          <Properties>
+            <string name="Name">BossUIController</string>
+            <string name="Source"><![CDATA[--!strict
+local Client = script.Parent
+local BossUIController = require(Client.Controllers.BossUIController)
+
+BossUIController:Init()
+
+print("[HybridCasualHub] BossUIController ready")
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="Folder" referent="32">
+          <Properties>
+            <string name="Name">Controllers</string>
+          </Properties>
+          <Item class="ModuleScript" referent="33">
+            <Properties>
+              <string name="Name">BossUIController</string>
+              <string name="Source"><![CDATA[--!strict
+--[[
+	Boss health bar + floating damage numbers (client-side presentation).
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+
+local BossUIController = {}
+
+local bossHitbox: BasePart? = nil
+local healthFill: Frame? = nil
+local visualHP = 0
+local visualMaxHP = 1
+
+local function findBossHitbox(): BasePart?
+	local hub = Workspace:FindFirstChild(GameConfig.World.HubModelName)
+	if not hub then
+		return nil
+	end
+	local boss = hub:FindFirstChild(GameConfig.BossCombat.BossModelName)
+	if not boss then
+		return nil
+	end
+	local hitbox = boss:FindFirstChild(GameConfig.BossCombat.BossHitboxName)
+	if hitbox and hitbox:IsA("BasePart") then
+		return hitbox
+	end
+	return nil
+end
+
+local function ensureBillboard(hitbox: BasePart): Frame
+	local existing = hitbox:FindFirstChild("BossHealthBillboard")
+	if existing and existing:IsA("BillboardGui") then
+		local fill = existing:FindFirstChild("Fill", true) :: Frame?
+		if fill then
+			return fill
+		end
+	end
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "BossHealthBillboard"
+	billboard.Size = UDim2.fromOffset(220, 36)
+	billboard.StudsOffset = Vector3.new(0, 12, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = hitbox
+
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.Size = UDim2.fromScale(1, 1)
+	back.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+	back.BorderSizePixel = 0
+	back.Parent = billboard
+
+	local backCorner = Instance.new("UICorner")
+	backCorner.CornerRadius = UDim.new(0, 8)
+	backCorner.Parent = back
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.BackgroundColor3 = Color3.fromRGB(255, 72, 72)
+	fill.BorderSizePixel = 0
+	fill.Parent = back
+
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 8)
+	fillCorner.Parent = fill
+
+	return fill
+end
+
+function BossUIController:Init()
+	bossHitbox = findBossHitbox()
+	if bossHitbox then
+		healthFill = ensureBillboard(bossHitbox)
+	end
+end
+
+function BossUIController:BeginEncounter(bossMaxHP: number, bossHPBeforeDamage: number)
+	visualMaxHP = math.max(1, bossMaxHP)
+	visualHP = math.clamp(bossHPBeforeDamage, 0, visualMaxHP)
+	self:_tweenHealthBar(visualHP / visualMaxHP)
+end
+
+function BossUIController:ApplyVisualHit(damage: number)
+	if not healthFill or not bossHitbox then
+		bossHitbox = findBossHitbox()
+		if bossHitbox then
+			healthFill = ensureBillboard(bossHitbox)
+		end
+	end
+	if not healthFill or not bossHitbox then
+		return
+	end
+
+	visualHP = math.max(0, visualHP - damage)
+	self:_tweenHealthBar(visualHP / visualMaxHP)
+	self:_spawnDamageIndicator(bossHitbox, damage)
+end
+
+function BossUIController:SnapToAuthority(bossCurrentHP: number, bossMaxHP: number)
+	visualMaxHP = math.max(1, bossMaxHP)
+	visualHP = math.clamp(bossCurrentHP, 0, visualMaxHP)
+	self:_tweenHealthBar(visualHP / visualMaxHP, 0.12)
+end
+
+function BossUIController:_tweenHealthBar(scaleX: number, duration: number?)
+	local fill = healthFill
+	if not fill then
+		return
+	end
+	local tween = TweenService:Create(fill, TweenInfo.new(duration or 0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = UDim2.fromScale(math.clamp(scaleX, 0, 1), 1),
+	})
+	tween:Play()
+end
+
+function BossUIController:_spawnDamageIndicator(hitbox: BasePart, damage: number)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.fromOffset(80, 40)
+	billboard.StudsOffset = Vector3.new(math.random(-4, 4), 6 + math.random(), math.random(-4, 4))
+	billboard.AlwaysOnTop = true
+	billboard.Parent = hitbox
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 22
+	label.TextColor3 = Color3.fromRGB(255, 235, 120)
+	label.TextStrokeTransparency = 0.4
+	label.Text = string.format("-%d", damage)
+	label.Parent = billboard
+
+	local rise = TweenService:Create(billboard, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		StudsOffset = billboard.StudsOffset + Vector3.new(0, 3, 0),
+	})
+
+	local fade = TweenService:Create(label, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TextTransparency = 1,
+		TextStrokeTransparency = 1,
+	})
+
+	rise:Play()
+	fade:Play()
+	fade.Completed:Once(function()
+		billboard:Destroy()
+	end)
+end
+
+return BossUIController
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="34">
+            <Properties>
+              <string name="Name">GameController</string>
+              <string name="Source"><![CDATA[--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Hud = require(script.Parent.Parent.UI.Hud)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type PlayerDataPayload = Types.PlayerDataPayload
+type MinigameStatePayload = Types.MinigameStatePayload
+
+export type GameController = {
+	Init: (self: GameController) -> (),
+}
+
+local GameController = {} :: GameController
+GameController.__index = GameController
+
+local PHASE_LABELS: { [Types.MinigamePhase]: string } = {
+	Lobby = "Lobby",
+	Playing = "Minigame",
+	Reward = "Reward",
+	Idle = "Hub",
+}
+
+function GameController:Init()
+	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
+	local playerDataUpdated = remotesFolder:WaitForChild("PlayerDataUpdated") :: RemoteEvent
+	local minigameStateChanged = remotesFolder:WaitForChild("MinigameStateChanged") :: RemoteEvent
+
+	local hud = Hud.new()
+
+	playerDataUpdated.OnClientEvent:Connect(function(payload: PlayerDataPayload)
+		hud:SetCoins(payload.Coins)
+	end)
+
+	minigameStateChanged.OnClientEvent:Connect(function(payload: MinigameStatePayload)
+		local label = PHASE_LABELS[payload.phase] or payload.phase
+		if payload.phase == "Reward" then
+			hud:SetTimer("Round complete! +coins", 0)
+		elseif payload.phase == "Idle" then
+			hud:SetTimer("Next round soon...", 0)
+		else
+			hud:SetTimer(label, payload.timeRemaining)
+		end
+	end)
+end
+
+return GameController
+]]></string>
+            </Properties>
+          </Item>
+        </Item>
+        <Item class="Folder" referent="35">
+          <Properties>
+            <string name="Name">Modules</string>
+          </Properties>
+          <Item class="ModuleScript" referent="36">
+            <Properties>
+              <string name="Name">BossCombatJuice</string>
+              <string name="Source"><![CDATA[--!strict
+--[[
+	Shared hit VFX/SFX helpers for swarm impacts (client-only).
+]]
+
+local hitSoundIds = {
+	"rbxassetid://9119720971",
+	"rbxassetid://9119720970",
+	"rbxassetid://9119720969",
+}
+
+local BossCombatJuice = {}
+
+function BossCombatJuice.playHitSound(parent: Instance)
+	local sound = Instance.new("Sound")
+	sound.SoundId = hitSoundIds[math.random(1, #hitSoundIds)]
+	sound.Volume = 0.55
+	sound.PlaybackSpeed = 0.9 + math.random() * 0.25
+	sound.RollOffMaxDistance = 120
+	sound.Parent = parent
+	sound:Play()
+	sound.Ended:Once(function()
+		sound:Destroy()
+	end)
+end
+
+function BossCombatJuice.emitHitParticles(anchor: BasePart)
+	local attachment = anchor:FindFirstChild("SwarmHitAttachment") :: Attachment?
+	if not attachment then
+		attachment = Instance.new("Attachment")
+		attachment.Name = "SwarmHitAttachment"
+		attachment.Parent = anchor
+	end
+
+	local emitter = attachment:FindFirstChild("SwarmHitBurst") :: ParticleEmitter?
+	if not emitter then
+		emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "SwarmHitBurst"
+		emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		emitter.Lifetime = NumberRange.new(0.15, 0.35)
+		emitter.Speed = NumberRange.new(8, 16)
+		emitter.Rate = 0
+		emitter.SpreadAngle = Vector2.new(35, 35)
+		emitter.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.35),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		emitter.Parent = attachment
+	end
+
+	emitter:Emit(6)
+end
+
+return BossCombatJuice
+]]></string>
+            </Properties>
+          </Item>
+          <Item class="ModuleScript" referent="37">
+            <Properties>
+              <string name="Name">SoldierObjectPool</string>
+              <string name="Source"><![CDATA[--!strict
+--[[
+	Client-only soldier visuals. Anchored parts — no .Touched / physics swarm.
+]]
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+
+export type SoldierObjectPool = {
+	PrepareSwarm: (self: SoldierObjectPool, count: number, origin: CFrame) -> { BasePart },
+	Release: (self: SoldierObjectPool, soldier: BasePart) -> (),
+	GetActiveCount: (self: SoldierObjectPool) -> number,
+}
+
+local SoldierObjectPool = {} :: SoldierObjectPool
+SoldierObjectPool.__index = SoldierObjectPool
+
+local POOL_FOLDER_NAME = "SwarmSoldierPool"
+
+local function createSoldier(): BasePart
+	local part = Instance.new("Part")
+	part.Name = "SwarmSoldier"
+	part.Size = Vector3.new(0.9, 1.4, 0.9)
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.Material = Enum.Material.SmoothPlastic
+	part.Color = Color3.fromRGB(72, 132, 255)
+	part.CastShadow = false
+	return part
+end
+
+function SoldierObjectPool.new(parent: Instance): SoldierObjectPool
+	local folder = Instance.new("Folder")
+	folder.Name = POOL_FOLDER_NAME
+	folder.Parent = parent
+
+	return setmetatable({
+		_folder = folder,
+		_available = {} :: { BasePart },
+		_active = {} :: { BasePart },
+	}, SoldierObjectPool)
+end
+
+function SoldierObjectPool:PrepareSwarm(count: number, origin: CFrame): { BasePart }
+	local capped = math.min(count, GameConfig.SwarmVisuals.MaxAnimatedSoldiers)
+	local swarm: { BasePart } = {}
+
+	for index = 1, capped do
+		local soldier = table.remove(self._available)
+		if not soldier then
+			soldier = createSoldier()
+			soldier.Parent = self._folder
+		end
+		table.insert(self._active, soldier)
+		table.insert(swarm, soldier)
+
+		local ring = math.floor((index - 1) / 12)
+		local angle = ((index - 1) % 12) / 12 * math.pi * 2
+		local offset = Vector3.new(math.cos(angle) * (6 + ring * 2), 2 + ring * 0.2, math.sin(angle) * (6 + ring * 2))
+		soldier.CFrame = origin * CFrame.new(offset)
+	end
+
+	return swarm
+end
+
+function SoldierObjectPool:Release(soldier: BasePart)
+	local activeIndex = table.find(self._active, soldier)
+	if activeIndex then
+		table.remove(self._active, activeIndex)
+	end
+	soldier.Transparency = 0
+	table.insert(self._available, soldier)
+end
+
+function SoldierObjectPool:GetActiveCount(): number
+	return #self._active
+end
+
+return SoldierObjectPool
+]]></string>
+            </Properties>
+          </Item>
+        </Item>
+        <Item class="LocalScript" referent="38">
+          <Properties>
+            <string name="Name">TycoonController</string>
+            <string name="Source"><![CDATA[--!strict
+--[[
+	Client tycoon pads + spawn juice. Currency and unlock state are server-authoritative.
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local TycoonConfig = require(ReplicatedStorage.Shared.TycoonConfig)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Types = require(ReplicatedStorage.Shared.Types)
+
+type TycoonProgressPayload = Types.TycoonProgressPayload
+type TycoonStructureSpawnedPayload = Types.TycoonStructureSpawnedPayload
+
+local player = Players.LocalPlayer
+local BUTTONS_FOLDER_NAME = "PurchasePads"
+local PLOTS_FOLDER_NAME = "TycoonPlots"
+local PLOT_ORIGIN_NAME = "Origin"
+
+local progress: TycoonProgressPayload = {
+	unlocked = {},
+	coins = 0,
+	stats = { StartingArmy = 0 },
+}
+
+local purchasePads: { [string]: BasePart } = {}
+
+local remotesFolder = ReplicatedStorage:WaitForChild(Remotes.FolderName)
+local requestPurchase = remotesFolder:WaitForChild(Remotes.TycoonRequestPurchase) :: RemoteFunction
+local progressUpdated = remotesFolder:WaitForChild(Remotes.TycoonProgressUpdated) :: RemoteEvent
+local structureSpawned = remotesFolder:WaitForChild(Remotes.TycoonStructureSpawned) :: RemoteEvent
+
+local function getLocalPlot(): Model?
+	local hub = Workspace:FindFirstChild("Hub")
+	local plots = hub and hub:FindFirstChild(PLOTS_FOLDER_NAME)
+	if not plots then
+		return nil
+	end
+	for _, plot in plots:GetChildren() do
+		if plot:IsA("Model") and plot:GetAttribute("OwnerUserId") == player.UserId then
+			return plot
+		end
+	end
+	return nil
+end
+
+local function getPlotOrigin(plot: Model): CFrame
+	local origin = plot:FindFirstChild(PLOT_ORIGIN_NAME)
+	if origin and origin:IsA("BasePart") then
+		return origin.CFrame
+	end
+	return plot:GetPivot()
+end
+
+local function playPlacementJuice(building: Model)
+	local primary = building.PrimaryPart or building:FindFirstChildWhichIsA("BasePart")
+	if not primary then
+		return
+	end
+
+	local baseScale = building:GetScale()
+	building:ScaleTo(0.01)
+
+	-- Model tweening via stepped ScaleTo for elastic feel
+	local start = os.clock()
+	local duration = 0.65
+	local connection: RBXScriptConnection?
+	connection = game:GetService("RunService").Heartbeat:Connect(function()
+		local alpha = math.clamp((os.clock() - start) / duration, 0, 1)
+		local eased = TweenService:GetValue(alpha, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+		local scale = math.max(0.01, eased) * baseScale
+		building:ScaleTo(scale)
+		if alpha >= 1 and connection then
+			connection:Disconnect()
+			building:ScaleTo(baseScale)
+		end
+	end)
+
+	local attachment = primary:FindFirstChild("PoofAttachment") :: Attachment?
+	if not attachment then
+		attachment = Instance.new("Attachment")
+		attachment.Name = "PoofAttachment"
+		attachment.Parent = primary
+	end
+
+	local emitter = attachment:FindFirstChild("PoofEmitter") :: ParticleEmitter?
+	if not emitter then
+		emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "PoofEmitter"
+		emitter.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		emitter.Rate = 0
+		emitter.Lifetime = NumberRange.new(0.3, 0.6)
+		emitter.Speed = NumberRange.new(6, 12)
+		emitter.SpreadAngle = Vector2.new(180, 180)
+		emitter.Parent = attachment
+	end
+	emitter:Emit(24)
+
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxassetid://12221967"
+	sound.Volume = 0.6
+	sound.PlaybackSpeed = 0.95 + math.random() * 0.1
+	sound.Parent = primary
+	sound:Play()
+	sound.Ended:Once(function()
+		sound:Destroy()
+	end)
+end
+
+local function findSpawnedBuilding(payload: TycoonStructureSpawnedPayload): Model?
+	local hub = Workspace:FindFirstChild("Hub")
+	local plots = hub and hub:FindFirstChild(PLOTS_FOLDER_NAME)
+	local plot = plots and plots:FindFirstChild(payload.plotName)
+	local structures = plot and plot:FindFirstChild("Structures")
+	local building = structures and structures:FindFirstChild(payload.nodeId)
+	if building and building:IsA("Model") then
+		return building
+	end
+	return nil
+end
+
+local function clearPads()
+	for _, pad in purchasePads do
+		pad:Destroy()
+	end
+	table.clear(purchasePads)
+end
+
+local function createPurchasePad(plot: Model, node: TycoonConfig.TycoonNode)
+	local pad = Instance.new("Part")
+	pad.Name = "Pad_" .. node.ID
+	pad.Size = Vector3.new(5, 1, 5)
+	pad.Anchored = true
+	pad.CanCollide = false
+	pad.Material = Enum.Material.Neon
+	pad.Color = Color3.fromRGB(255, 196, 72)
+	pad.Transparency = 0.2
+	pad.CFrame = getPlotOrigin(plot) * node.PlotOffset * CFrame.new(0, 0.5, 0)
+	pad:SetAttribute("TycoonNodeId", node.ID)
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Size = UDim2.fromOffset(140, 56)
+	billboard.StudsOffset = Vector3.new(0, 3, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = pad
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 16
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Text = string.format("%s\n%d Coins", node.ID, node.Cost)
+	label.Parent = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Unlock"
+	prompt.ObjectText = node.ID
+	prompt.HoldDuration = 0.25
+	prompt.MaxActivationDistance = 12
+	prompt.Parent = pad
+
+	prompt.Triggered:Connect(function()
+		local ok, err = requestPurchase:InvokeServer(node.ID)
+		if not ok then
+			warn("[Tycoon] Purchase failed:", err)
+		end
+	end)
+
+	local buttonsFolder = plot:FindFirstChild(BUTTONS_FOLDER_NAME)
+	if not buttonsFolder then
+		buttonsFolder = Instance.new("Folder")
+		buttonsFolder.Name = BUTTONS_FOLDER_NAME
+		buttonsFolder.Parent = plot
+	end
+	pad.Parent = buttonsFolder
+	purchasePads[node.ID] = pad
+end
+
+local function refreshPurchasePads()
+	local plot = getLocalPlot()
+	clearPads()
+	if not plot then
+		return
+	end
+
+	for _, node in TycoonConfig.getAllNodes() do
+		if progress.unlocked[node.ID] then
+			-- already built
+		else
+			local dependencyMet = if node.Dependency then progress.unlocked[node.Dependency] else true
+			if dependencyMet then
+				createPurchasePad(plot, node)
+			end
+		end
+	end
+end
+
+progressUpdated.OnClientEvent:Connect(function(payload: TycoonProgressPayload)
+	progress = payload
+	refreshPurchasePads()
+end)
+
+structureSpawned.OnClientEvent:Connect(function(payload: TycoonStructureSpawnedPayload)
+	local building = findSpawnedBuilding(payload)
+	if building then
+		playPlacementJuice(building)
+	end
+	if payload.ownerUserId == player.UserId then
+		refreshPurchasePads()
+	end
+end)
+
+task.defer(refreshPurchasePads)
+
+print("[HybridCasualHub] TycoonController ready")
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="Folder" referent="39">
+          <Properties>
+            <string name="Name">UI</string>
+          </Properties>
+          <Item class="ModuleScript" referent="40">
+            <Properties>
+              <string name="Name">Hud</string>
+              <string name="Source"><![CDATA[--!strict
+local Players = game:GetService("Players")
+
+export type Hud = {
+	Gui: ScreenGui,
+	SetCoins: (self: Hud, coins: number) -> (),
+	SetTimer: (self: Hud, label: string, seconds: number) -> (),
+}
+
+local Hud = {} :: Hud
+Hud.__index = Hud
+
+function Hud.new(): Hud
+	local player = Players.LocalPlayer
+	local playerGui = player:WaitForChild("PlayerGui")
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "HybridCasualHud"
+	screenGui.ResetOnSpawn = false
+	screenGui.IgnoreGuiInset = true
+	screenGui.Parent = playerGui
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Root"
+	frame.AnchorPoint = Vector2.new(0.5, 0)
+	frame.Position = UDim2.fromScale(0.5, 0.02)
+	frame.Size = UDim2.fromOffset(320, 88)
+	frame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+	frame.BackgroundTransparency = 0.15
+	frame.BorderSizePixel = 0
+	frame.Parent = screenGui
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = frame
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 10)
+	padding.PaddingBottom = UDim.new(0, 10)
+	padding.PaddingLeft = UDim.new(0, 14)
+	padding.PaddingRight = UDim.new(0, 14)
+	padding.Parent = frame
+
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Vertical
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = frame
+
+	local coinsLabel = Instance.new("TextLabel")
+	coinsLabel.Name = "CoinsLabel"
+	coinsLabel.Size = UDim2.new(1, 0, 0, 28)
+	coinsLabel.BackgroundTransparency = 1
+	coinsLabel.Font = Enum.Font.GothamBold
+	coinsLabel.TextSize = 20
+	coinsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	coinsLabel.TextColor3 = Color3.fromRGB(255, 214, 102)
+	coinsLabel.Text = "Coins: 0"
+	coinsLabel.Parent = frame
+
+	local timerLabel = Instance.new("TextLabel")
+	timerLabel.Name = "TimerLabel"
+	timerLabel.Size = UDim2.new(1, 0, 0, 24)
+	timerLabel.BackgroundTransparency = 1
+	timerLabel.Font = Enum.Font.GothamMedium
+	timerLabel.TextSize = 18
+	timerLabel.TextXAlignment = Enum.TextXAlignment.Left
+	timerLabel.TextColor3 = Color3.fromRGB(220, 220, 230)
+	timerLabel.Text = "Minigame: waiting..."
+	timerLabel.Parent = frame
+
+	local self = setmetatable({
+		Gui = screenGui,
+		_coinsLabel = coinsLabel,
+		_timerLabel = timerLabel,
+	}, Hud)
+
+	return self
+end
+
+function Hud:SetCoins(coins: number)
+	self._coinsLabel.Text = string.format("Coins: %d", coins)
+end
+
+function Hud:SetTimer(label: string, seconds: number)
+	if seconds > 0 then
+		self._timerLabel.Text = string.format("%s — %ds", label, seconds)
+	else
+		self._timerLabel.Text = label
+	end
+end
+
+return Hud
+]]></string>
+            </Properties>
+          </Item>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+  <Item class="Workspace" referent="41">
+    <Properties>
+      <string name="Name">Workspace</string>
+      <bool name="NeedsPivotMigration">false</bool>
+      <bool name="StreamingEnabled">false</bool>
+    </Properties>
+    <Item class="Model" referent="42">
+      <Properties>
+        <string name="Name">Hub</string>
+        <string name="Name">Hub</string>
+        <bool name="NeedsPivotMigration">false</bool>
+      </Properties>
+      <Item class="SpawnLocation" referent="43">
+        <Properties>
+          <string name="Name">ArenaSpawn</string>
+          <bool name="Anchored">true</bool>
+          <int name="Duration">0</int>
+          <string name="Name">ArenaSpawn</string>
+          <bool name="Neutral">true</bool>
+          <Vector3 name="Position">
+            <X>0</X>
+            <Y>0.5</Y>
+            <Z>120</Z>
+          </Vector3>
+          <Vector3 name="size">
+            <X>24</X>
+            <Y>1</Y>
+            <Z>24</Z>
+          </Vector3>
+        </Properties>
+      </Item>
+      <Item class="SpawnLocation" referent="44">
+        <Properties>
+          <string name="Name">LobbySpawn</string>
+          <bool name="Anchored">true</bool>
+          <int name="Duration">0</int>
+          <string name="Name">LobbySpawn</string>
+          <bool name="Neutral">true</bool>
+          <Vector3 name="Position">
+            <X>0</X>
+            <Y>0.5</Y>
+            <Z>0</Z>
+          </Vector3>
+          <Vector3 name="size">
+            <X>12</X>
+            <Y>1</Y>
+            <Z>12</Z>
+          </Vector3>
+        </Properties>
+      </Item>
+      <Item class="Part" referent="45">
+        <Properties>
+          <string name="Name">RunnerFinishLine</string>
+          <bool name="Anchored">true</bool>
+          <Color3uint8 name="Color3uint8">3401318</Color3uint8>
+          <token name="Material">288</token>
+          <string name="Name">RunnerFinishLine</string>
+          <Vector3 name="Position">
+            <X>0</X>
+            <Y>5</Y>
+            <Z>70</Z>
+          </Vector3>
+          <Vector3 name="size">
+            <X>14</X>
+            <Y>10</Y>
+            <Z>2</Z>
+          </Vector3>
+          <float name="Transparency">0.35</float>
+        </Properties>
+      </Item>
+      <Item class="Model" referent="46">
+        <Properties>
+          <string name="Name">SwarmBoss</string>
+          <string name="Name">SwarmBoss</string>
+          <bool name="NeedsPivotMigration">false</bool>
+        </Properties>
+        <Item class="Part" referent="47">
+          <Properties>
+            <string name="Name">Hitbox</string>
+            <bool name="Anchored">true</bool>
+            <Color3uint8 name="Color3uint8">7544716</Color3uint8>
+            <token name="Material">288</token>
+            <string name="Name">Hitbox</string>
+            <Vector3 name="Position">
+              <X>0</X>
+              <Y>12</Y>
+              <Z>100</Z>
+            </Vector3>
+            <Vector3 name="size">
+              <X>18</X>
+              <Y>22</Y>
+              <Z>18</Z>
+            </Vector3>
+          </Properties>
+        </Item>
+      </Item>
+      <Item class="Folder" referent="48">
+        <Properties>
+          <string name="Name">TycoonPlots</string>
+        </Properties>
+        <Item class="Model" referent="49">
+          <Properties>
+            <string name="Name">Plot1</string>
+            <string name="Name">Plot1</string>
+            <bool name="NeedsPivotMigration">false</bool>
+          </Properties>
+          <Item class="Part" referent="50">
+            <Properties>
+              <string name="Name">Origin</string>
+              <bool name="Anchored">true</bool>
+              <Color3uint8 name="Color3uint8">4210765</Color3uint8>
+              <string name="Name">Origin</string>
+              <Vector3 name="Position">
+                <X>-60</X>
+                <Y>0.5</Y>
+                <Z>-40</Z>
+              </Vector3>
+              <Vector3 name="size">
+                <X>40</X>
+                <Y>1</Y>
+                <Z>40</Z>
+              </Vector3>
+              <float name="Transparency">0.4</float>
+            </Properties>
+          </Item>
+        </Item>
+        <Item class="Model" referent="51">
+          <Properties>
+            <string name="Name">Plot2</string>
+            <string name="Name">Plot2</string>
+            <bool name="NeedsPivotMigration">false</bool>
+          </Properties>
+          <Item class="Part" referent="52">
+            <Properties>
+              <string name="Name">Origin</string>
+              <bool name="Anchored">true</bool>
+              <Color3uint8 name="Color3uint8">4210765</Color3uint8>
+              <string name="Name">Origin</string>
+              <Vector3 name="Position">
+                <X>60</X>
+                <Y>0.5</Y>
+                <Z>-40</Z>
+              </Vector3>
+              <Vector3 name="size">
+                <X>40</X>
+                <Y>1</Y>
+                <Z>40</Z>
+              </Vector3>
+              <float name="Transparency">0.4</float>
+            </Properties>
+          </Item>
+        </Item>
+      </Item>
+    </Item>
+  </Item>
+</roblox>
