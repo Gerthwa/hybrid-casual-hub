@@ -26,11 +26,17 @@ local function getPlaySwarmRemote(): RemoteEvent
 end
 
 local function getArmySize(player: Player): number
+	local baseArmy = 100
+	local tycoonBonus = player:GetAttribute("Stat_StartingArmy")
+	if typeof(tycoonBonus) == "number" and tycoonBonus > 0 then
+		baseArmy += math.floor(tycoonBonus)
+	end
+
 	local army = player:GetAttribute(GameConfig.BossCombat.RunnerArmyAttribute)
 	if typeof(army) == "number" and army > 0 then
 		return math.floor(army)
 	end
-	return 100
+	return baseArmy
 end
 
 local function getBossHP(player: Player): (number, number)

@@ -4,10 +4,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local TycoonConfig = require(ReplicatedStorage.Shared.TycoonConfig)
 local Types = require(ReplicatedStorage.Shared.Types)
 
 type RemotesService = require(script.Parent.RemotesService)
 type PlayerData = Types.PlayerData
+type PlayerStats = Types.PlayerStats
 
 local ProfileService = require(ServerStorage.ServerPackages.ProfileService)
 
@@ -15,7 +17,12 @@ export type DataService = {
 	Init: (self: DataService, remotesService: RemotesService) -> (),
 	GetData: (self: DataService, player: Player) -> PlayerData?,
 	AddCoins: (self: DataService, player: Player, amount: number) -> boolean,
+	TrySpendCoins: (self: DataService, player: Player, amount: number) -> boolean,
+	IsTycoonUnlocked: (self: DataService, player: Player, nodeId: string) -> boolean,
+	UnlockTycoonNode: (self: DataService, player: Player, nodeId: string) -> boolean,
+	GetStats: (self: DataService, player: Player) -> PlayerStats,
 	OnProfileReady: (self: DataService, player: Player, callback: (data: PlayerData) -> ()) -> (),
+	PushDataToClient: (self: DataService, player: Player, remotesService: RemotesService) -> (),
 }
 
 local DataService = {} :: DataService
@@ -23,14 +30,45 @@ DataService.__index = DataService
 
 type Profile = any
 
-local profileStore = ProfileService.GetProfileStore(GameConfig.DataStore.StoreName, {
+local DEFAULT_STATS: PlayerStats = {
+	StartingArmy = 0,
+}
+
+local profileTemplate = {
 	Coins = 0,
 	Gems = 0,
 	Rebirths = 0,
-})
+	TycoonUnlocked = {},
+	Stats = {
+		StartingArmy = 0,
+	},
+}
+
+local profileStore = ProfileService.GetProfileStore(GameConfig.DataStore.StoreName, profileTemplate)
 
 local profiles: { [Player]: Profile } = {}
 local readyCallbacks: { [Player]: { (data: PlayerData) -> () } } = {}
+
+local function normalizeUnlocked(raw: any): { [string]: boolean }
+	local unlocked: { [string]: boolean } = {}
+	if typeof(raw) == "table" then
+		for key, value in raw do
+			if value == true then
+				unlocked[tostring(key)] = true
+			end
+		end
+	end
+	return unlocked
+end
+
+local function normalizeStats(raw: any): PlayerStats
+	if typeof(raw) ~= "table" then
+		return table.clone(DEFAULT_STATS)
+	end
+	return {
+		StartingArmy = if typeof(raw.StartingArmy) == "number" then raw.StartingArmy else 0,
+	}
+end
 
 local function snapshotFromProfile(profile: Profile): PlayerData
 	local data = profile.Data
@@ -38,7 +76,24 @@ local function snapshotFromProfile(profile: Profile): PlayerData
 		Coins = data.Coins,
 		Gems = data.Gems,
 		Rebirths = data.Rebirths,
+		TycoonUnlocked = normalizeUnlocked(data.TycoonUnlocked),
+		Stats = normalizeStats(data.Stats),
 	}
+end
+
+local function applyBuffToProfile(profile: Profile, buff: { Stat: string, Value: number })
+	local stats = profile.Data.Stats
+	if typeof(stats) ~= "table" then
+		profile.Data.Stats = table.clone(DEFAULT_STATS)
+		stats = profile.Data.Stats
+	end
+	if buff.Stat == "StartingArmy" then
+		stats.StartingArmy = (stats.StartingArmy or 0) + buff.Value
+	end
+end
+
+local function syncStatAttributes(player: Player, stats: PlayerStats)
+	player:SetAttribute("Stat_StartingArmy", stats.StartingArmy)
 end
 
 function DataService:Init(remotesService: RemotesService)
@@ -70,6 +125,7 @@ function DataService:Init(remotesService: RemotesService)
 
 		profiles[player] = profile
 		local snapshot = snapshotFromProfile(profile)
+		syncStatAttributes(player, snapshot.Stats)
 		playerDataRemote:FireClient(player, snapshot)
 
 		local callbacks = readyCallbacks[player]
@@ -114,6 +170,59 @@ function DataService:AddCoins(player: Player, amount: number): boolean
 
 	profile.Data.Coins += amount
 	return true
+end
+
+function DataService:TrySpendCoins(player: Player, amount: number): boolean
+	local profile = profiles[player]
+	if not profile or amount <= 0 then
+		return false
+	end
+	if profile.Data.Coins < amount then
+		return false
+	end
+	profile.Data.Coins -= amount
+	return true
+end
+
+function DataService:IsTycoonUnlocked(player: Player, nodeId: string): boolean
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+	local unlocked = normalizeUnlocked(profile.Data.TycoonUnlocked)
+	return unlocked[nodeId] == true
+end
+
+function DataService:UnlockTycoonNode(player: Player, nodeId: string): boolean
+	local profile = profiles[player]
+	if not profile then
+		return false
+	end
+
+	if typeof(profile.Data.TycoonUnlocked) ~= "table" then
+		profile.Data.TycoonUnlocked = {}
+	end
+
+	local node = TycoonConfig.getNode(nodeId)
+	if not node then
+		return false
+	end
+
+	profile.Data.TycoonUnlocked[nodeId] = true
+	if node.Buff then
+		applyBuffToProfile(profile, node.Buff)
+		syncStatAttributes(player, normalizeStats(profile.Data.Stats))
+	end
+
+	return true
+end
+
+function DataService:GetStats(player: Player): PlayerStats
+	local data = self:GetData(player)
+	if not data then
+		return table.clone(DEFAULT_STATS)
+	end
+	return data.Stats
 end
 
 function DataService:OnProfileReady(player: Player, callback: (data: PlayerData) -> ())

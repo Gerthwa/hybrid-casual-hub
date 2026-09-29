@@ -9,6 +9,9 @@ local Remotes = {
 	PlayerDataUpdated = "PlayerDataUpdated",
 	MinigameStateChanged = "MinigameStateChanged",
 	PlaySwarmAnimation = "PlaySwarmAnimation",
+	TycoonRequestPurchase = "TycoonRequestPurchase",
+	TycoonProgressUpdated = "TycoonProgressUpdated",
+	TycoonStructureSpawned = "TycoonStructureSpawned",
 }
 
 return Remotes

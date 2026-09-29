@@ -19,6 +19,9 @@
       },
       "Remotes": {
         "$className": "Folder"
+      },
+      "TycoonPrefabs": {
+        "$path": "assets/ReplicatedStorage/TycoonPrefabs"
       }
     },
     "ServerScriptService": {

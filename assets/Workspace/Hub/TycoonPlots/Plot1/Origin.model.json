@@ -1,0 +1,11 @@
+{
+  "className": "Part",
+  "properties": {
+    "Name": "Origin",
+    "Anchored": true,
+    "Size": [40, 1, 40],
+    "Position": [-60, 0.5, -40],
+    "Transparency": 0.4,
+    "Color": [0.25, 0.25, 0.3]
+  }
+}
