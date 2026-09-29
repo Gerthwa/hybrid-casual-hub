@@ -10,25 +10,21 @@ Quick mobile-ad-style minigames with long-term progression (tycoon, pets, rebirt
 | [Rojo](https://rojo.space/) | Syncs `src/` into Studio |
 | [Wally](https://wally.run/) | Server packages (ProfileService) |
 
-```bash
-aftman trust rojo-rbx/rojo    # first time only
-aftman trust UpliftGames/wally
+**Windows (önerilen):**
+
+```powershell
+aftman add rojo-rbx/rojo@7.7.0
+aftman add UpliftGames/wally@0.3.2
 aftman install
 wally install
-rojo --version
+.\scripts\dev.ps1
 ```
 
-Studio + plugin (Windows): [Project Context — Rojo kurulum](cursor.agent://project/context/docs/rojo-setup.md).
+Studio: **Plugins → Rojo → Connect** → `localhost:34872` → **Play**.
 
-**VS Code / Cursor:** install recommended extensions (`.vscode/extensions.json`) — **Rojo**, **Luau LSP**, **Selene**.
+Detaylı Türkçe adımlar: [Rojo kurulum rehberi](cursor.agent://project/context/docs/rojo-setup.md).
 
-## Develop
-
-```bash
-rojo serve
-```
-
-In Studio: **Plugins → Rojo → Connect** → `localhost:34872`.
+**VS Code / Cursor:** recommended extensions — **Rojo**, **Luau LSP**, **Selene** (`.vscode/extensions.json`).
 
 Enable **Game Settings → Security → Allow HTTP Requests** only if you add HTTP later. For local play, use **File → Publish to Roblox** (or Studio API access) so **DataStores** work; unpublished local files may not persist ProfileService data.
 
