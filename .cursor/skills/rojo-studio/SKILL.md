@@ -27,7 +27,7 @@ PowerShell, proje kökü:
 Studio:
 
 1. **File → Open** ile mevcut place veya yeni Baseplate.
-2. **Plugins → Rojo → Connect** → `localhost:34872`.
+2. **Plugins → Rojo → Connect** → Host `127.0.0.1`, Port `34872` (`dev.ps1` penceresi açık kalmalı).
 3. **Play** — `src/` değişiklikleri kaydedince Studio otomatik güncellenir.
 
 Agent kod değiştirdiğinde kullanıcıya hatırlat: `rojo serve` açık kalsın, Studio bağlı olsun.
