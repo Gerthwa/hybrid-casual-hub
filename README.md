@@ -2,6 +2,8 @@
 
 Quick mobile-ad-style minigames with long-term progression (tycoon, pets, rebirths). This repo uses **Rojo 7**, **Wally**, and **ProfileService** for a modular Luau architecture.
 
+**Cursor:** Bu proje **Local Agent** (Windows + Studio) için yapılandırıldı — `AGENTS.md` ve [Local Agent kurulum](cursor.agent://project/context/docs/local-agent-kurulum.md) (Project Context).
+
 ## Toolchain
 
 | Tool | Role |

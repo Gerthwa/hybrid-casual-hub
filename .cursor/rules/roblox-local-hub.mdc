@@ -1,0 +1,16 @@
+---
+description: Hybrid-casual Roblox hub — local Windows + Rojo development (default for this repo)
+alwaysApply: true
+---
+
+# Local-first Roblox hub
+
+This project is developed with **Roblox Studio + Rojo on the developer's Windows machine**.
+
+- Run and debug: `scripts/BASLA.bat` or `scripts/dev.ps1`; Studio Rojo Connect to `127.0.0.1:34872`.
+- Use skill `rojo-studio` for Rojo/Studio workflows.
+- Never use hundreds of `.Touched` events for swarm combat; server authoritative math, client VFX.
+- Tycoon economy: server-only purchase validation; costs from `Shared/TycoonConfig.lua`.
+- Reply to Burak in Turkish for setup and how-to unless he uses English.
+
+Cloud agents cannot operate Studio on the user's PC — if execution environment is cloud, say so and output exact local steps.
