@@ -1,0 +1,11 @@
+{
+  "className": "Part",
+  "properties": {
+    "Name": "Hitbox",
+    "Anchored": true,
+    "Size": [18, 22, 18],
+    "Position": [0, 12, 100],
+    "Color": [0.45, 0.12, 0.55],
+    "Material": "Neon"
+  }
+}

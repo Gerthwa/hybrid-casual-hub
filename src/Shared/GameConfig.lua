@@ -20,6 +20,22 @@ local GameConfig = {
 		ArenaSpawnName = "ArenaSpawn",
 		HubModelName = "Hub",
 	},
+
+	BossCombat = {
+		DefaultBossMaxHP = 5000,
+		CoinsPerDamage = 2,
+		FinishLineTag = "MultiplierRunnerFinish",
+		BossModelName = "SwarmBoss",
+		BossHitboxName = "Hitbox",
+		RunnerArmyAttribute = "RunnerArmySize",
+	},
+
+	SwarmVisuals = {
+		MaxAnimatedSoldiers = 180,
+		SoldiersPerFrame = 10,
+		TweenDurationSeconds = 0.35,
+		HitStaggerSeconds = 0.02,
+	},
 }
 
 return GameConfig

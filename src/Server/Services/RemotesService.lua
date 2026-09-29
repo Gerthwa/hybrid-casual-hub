@@ -8,6 +8,7 @@ export type RemotesService = {
 	GetFolder: (self: RemotesService) -> Folder,
 	GetPlayerDataUpdated: (self: RemotesService) -> RemoteEvent,
 	GetMinigameStateChanged: (self: RemotesService) -> RemoteEvent,
+	GetPlaySwarmAnimation: (self: RemotesService) -> RemoteEvent,
 }
 
 local RemotesService = {} :: RemotesService
@@ -16,6 +17,7 @@ RemotesService.__index = RemotesService
 local folder: Folder? = nil
 local playerDataUpdated: RemoteEvent? = nil
 local minigameStateChanged: RemoteEvent? = nil
+local playSwarmAnimation: RemoteEvent? = nil
 
 local function getOrCreateRemote(parent: Instance, name: string): RemoteEvent
 	local existing = parent:FindFirstChild(name)
@@ -40,6 +42,7 @@ function RemotesService:Init()
 	folder = remotesFolder
 	playerDataUpdated = getOrCreateRemote(remotesFolder, Remotes.PlayerDataUpdated)
 	minigameStateChanged = getOrCreateRemote(remotesFolder, Remotes.MinigameStateChanged)
+	playSwarmAnimation = getOrCreateRemote(remotesFolder, Remotes.PlaySwarmAnimation)
 end
 
 function RemotesService:GetFolder(): Folder
@@ -55,6 +58,11 @@ end
 function RemotesService:GetMinigameStateChanged(): RemoteEvent
 	assert(minigameStateChanged, "RemotesService not initialized")
 	return minigameStateChanged
+end
+
+function RemotesService:GetPlaySwarmAnimation(): RemoteEvent
+	assert(playSwarmAnimation, "RemotesService not initialized")
+	return playSwarmAnimation
 end
 
 return RemotesService

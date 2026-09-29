@@ -8,6 +8,7 @@ local Remotes = {
 	FolderName = "Remotes",
 	PlayerDataUpdated = "PlayerDataUpdated",
 	MinigameStateChanged = "MinigameStateChanged",
+	PlaySwarmAnimation = "PlaySwarmAnimation",
 }
 
 return Remotes

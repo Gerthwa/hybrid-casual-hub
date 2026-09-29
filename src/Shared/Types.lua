@@ -18,4 +18,13 @@ export type MinigameStatePayload = {
 
 export type PlayerDataPayload = PlayerData
 
+export type SwarmAttackPayload = {
+	armySize: number,
+	damageDealt: number,
+	survivingSoldiers: number,
+	bossMaxHP: number,
+	bossCurrentHP: number,
+	coinsAwarded: number,
+}
+
 return nil
