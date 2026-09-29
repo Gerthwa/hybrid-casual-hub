@@ -1,35 +1,65 @@
-# Minigame Hub (Roblox)
+# Hybrid-Casual Minigame Hub (Roblox)
 
-Reklam tarzı minigame koleksiyonu hub projesi. Kaynak kod Rojo ile Roblox Studio’ya senkronize edilir.
+Quick mobile-ad-style minigames with long-term progression (tycoon, pets, rebirths). This repo uses **Rojo 7**, **Wally**, and **ProfileService** for a modular Luau architecture.
 
-## Gereksinimler
+## Toolchain
 
-- [Roblox Studio](https://create.roblox.com/)
-- [Aftman](https://github.com/LPGhatguy/aftman) (önerilen) veya elle kurulmuş Rojo CLI
-
-## Kurulum (CLI)
+| Tool | Role |
+|------|------|
+| [Aftman](https://github.com/LPGhatguy/aftman) | Pins `rojo` + `wally` |
+| [Rojo](https://rojo.space/) | Syncs `src/` into Studio |
+| [Wally](https://wally.run/) | Server packages (ProfileService) |
 
 ```bash
-# Aftman yoksa: https://github.com/LPGhatguy/aftman#installation
-# İlk kez: aftman trust rojo-rbx/rojo   (veya: aftman add rojo-rbx/rojo@7.7.0)
+aftman trust rojo-rbx/rojo    # first time only
+aftman trust UpliftGames/wally
 aftman install
+wally install
 rojo --version
 ```
 
-Windows ve Studio eklentisi adımları için proje notlarındaki [Rojo kurulum rehberi](cursor.agent://project/context/docs/rojo-setup.md).
+Studio + plugin (Windows): [Project Context — Rojo kurulum](cursor.agent://project/context/docs/rojo-setup.md).
 
-## Geliştirme
+**VS Code / Cursor:** install recommended extensions (`.vscode/extensions.json`) — **Rojo**, **Luau LSP**, **Selene**.
+
+## Develop
 
 ```bash
 rojo serve
 ```
 
-Studio’da Rojo eklentisinden **Connect** ile `localhost:34872` (varsayılan port) adresine bağlanın.
+In Studio: **Plugins → Rojo → Connect** → `localhost:34872`.
 
-## Proje yapısı
+Enable **Game Settings → Security → Allow HTTP Requests** only if you add HTTP later. For local play, use **File → Publish to Roblox** (or Studio API access) so **DataStores** work; unpublished local files may not persist ProfileService data.
 
-| Yol | Studio |
-|-----|--------|
-| `src/server` | `ServerScriptService.Server` |
-| `src/client` | `StarterPlayer.StarterPlayerScripts.Client` |
-| `src/shared` | `ReplicatedStorage.Shared` |
+## Layout
+
+```
+default.project.json
+wally.toml
+src/
+  Server/          → ServerScriptService.Server
+    Services/
+      DataService.lua       # ProfileService persistence (Coins, Gems, Rebirths)
+      MinigameManager.lua   # Lobby → arena, 30s timer, coin reward
+      RemotesService.lua
+  Client/          → StarterPlayerScripts.Client
+    Controllers/
+      GameController.lua    # HUD: coins + timer
+    UI/
+      Hud.lua
+  Shared/          → ReplicatedStorage.Shared
+    GameConfig.lua
+    Remotes.lua
+    Types.lua
+assets/Workspace/Hub/   # LobbySpawn + ArenaSpawn
+ServerPackages/         # wally install (ProfileService)
+```
+
+## Core loop (MVP)
+
+1. Player data loads via **DataService** (ProfileService).
+2. **MinigameManager** teleports to lobby, counts down, moves to arena for **30s**, grants **50 coins**, returns to lobby, repeats.
+3. **GameController** updates on-screen coins and timer from remotes.
+
+Tweak values in `src/Shared/GameConfig.lua`.

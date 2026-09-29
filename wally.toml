@@ -1,0 +1,11 @@
+[package]
+name = "gerthwa/minigame-hub"
+version = "0.1.0"
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+
+[server-dependencies]
+# Community Wally port of MadStudioRoblox/ProfileService (Luau types)
+ProfileService = "tazmondo/profileservice@1.0.6"

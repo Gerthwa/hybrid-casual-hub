@@ -4,6 +4,10 @@
 *.rbxm
 *.rbxmx
 
+# Wally (run `wally install` after clone)
+Packages/
+ServerPackages/_Index/
+
 # OS / editor
 .DS_Store
 Thumbs.db

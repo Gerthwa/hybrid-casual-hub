@@ -1,0 +1,11 @@
+{
+  "className": "SpawnLocation",
+  "properties": {
+    "Name": "ArenaSpawn",
+    "Anchored": true,
+    "Size": [24, 1, 24],
+    "Position": [0, 0.5, 120],
+    "Neutral": true,
+    "Duration": 0
+  }
+}

@@ -1,17 +1,36 @@
 {
   "name": "minigame-hub",
+  "servePort": 34872,
+  "globIgnorePaths": [
+    "**/*.spec.lua",
+    "**/*.test.lua",
+    "ServerPackages/_Index/**",
+    "Packages/_Index/**"
+  ],
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
       "$className": "ReplicatedStorage",
       "Shared": {
-        "$path": "src/shared"
+        "$path": "src/Shared"
+      },
+      "Packages": {
+        "$path": "Packages"
+      },
+      "Remotes": {
+        "$className": "Folder"
       }
     },
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "Server": {
-        "$path": "src/server"
+        "$path": "src/Server"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "ServerPackages": {
+        "$path": "ServerPackages"
       }
     },
     "StarterPlayer": {
@@ -19,8 +38,17 @@
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
         "Client": {
-          "$path": "src/client"
+          "$path": "src/Client"
         }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": {
+        "StreamingEnabled": false
+      },
+      "Hub": {
+        "$path": "assets/Workspace/Hub"
       }
     }
   }

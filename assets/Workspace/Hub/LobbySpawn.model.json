@@ -1,0 +1,11 @@
+{
+  "className": "SpawnLocation",
+  "properties": {
+    "Name": "LobbySpawn",
+    "Anchored": true,
+    "Size": [12, 1, 12],
+    "Position": [0, 0.5, 0],
+    "Neutral": true,
+    "Duration": 0
+  }
+}
