@@ -1,0 +1,5 @@
+# Pin toolchain versions. Run: aftman install
+# https://github.com/LPGhatguy/aftman
+
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"

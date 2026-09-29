@@ -1,0 +1,9 @@
+# Roblox place/model exports
+*.rbxl
+*.rbxlx
+*.rbxm
+*.rbxmx
+
+# OS / editor
+.DS_Store
+Thumbs.db
