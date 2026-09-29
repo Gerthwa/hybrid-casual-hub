@@ -5,7 +5,7 @@
 *.rbxmx
 
 # Wally (run `wally install` after clone)
-Packages/
+Packages/_Index/
 ServerPackages/_Index/
 
 # OS / editor
